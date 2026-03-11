@@ -6,67 +6,92 @@
 
 1. [Goal](#goal)
 2. [Pre-Requisites](#pre-requisites)
-3. [Directory Structure](#directory-structure)
-4. [Pre-Deployment](#pre-deployment)
-5. [VPC Deployment](#vpc-deployment)
-6. [Validation](#validation)
+3. [Pre-Deployment](#pre-deployment)
+4. [VPC Deployment](#vpc-deployment)
+5. [Validation](#validation)
+
+---
 
 ## Goal
 
-Deploy a Modular and Scalable Virtual Network Architecture with Amazon VPC.
+Deploy a Modular and Scalable Virtual Network Architecture with Amazon VPC. 
+
+This project demonstrates how to build a highly available, fault-tolerant, and secure infrastructure on AWS. By leveraging multiple Availability Zones, public/private subnets, and isolated VPCS with a Transit Gateway, you ensure that application servers remain secure from direct internet exposure while still being capable of serving web traffic efficiently.
 
 ## Pre-Requisites
 
-1. You must be having an [AWS account](https://aws.amazon.com/) to create infrastructure resources on AWS cloud.
-2. Source Code is available in the `html-web-app` directory of this repository.
+Before you begin, ensure you have the following:
 
-## Directory Structure
+1. An active **[AWS account](https://aws.amazon.com/)** with administrator privileges to provision VPCs, EC2 instances, S3 buckets, and IAM roles.
+2. Basic knowledge of networking concepts (IP addressing, CIDR blocks, routing).
+3. The **Source Code** provided in the `html-web-app` directory of this repository, which contains the web application we will host.
+4. **AWS CLI** installed locally (optional but recommended for interacting with the environment).
 
-- **`VPC Architecture/`**: Contains necessary configuration files and bootstrapping scripts:
-  - `script.sh`: User data shell script to automate the configuration of EC2 instances upon launch. It detects the OS, installs dependencies (Apache/HTTPD, AWS CLI, CloudWatch Agent), and fetches web content from an S3 bucket.
-  - `flow-logs.json`, `flow-logs-trusted.json`: IAM JSON policies related to setting up and authorizing VPC Flow Logs.
-  - `memory_metrics.json`: CloudWatch Agent configuration to track and push custom memory metrics.
-  - `s3-policy.json`: IAM policy snippet for allowing EC2 instances secure and restricted access to an S3 bucket.
-- **`html-web-app/`**: Contains the source code for the web application (`index.html`, CSS, JS, etc.) that will be hosted on the highly available AWS infrastructure.
+---
 
 ## Pre-Deployment
 
-Customize the application dependencies mentioned below on AWS EC2 instance and create the Golden AMI. Alternatively, you can use the provided `script.sh` as User Data to bootstrap instances on launch.
+Before building the network, we must prepare the logical components and permissions that our instances will use. This repository contains a `VPC Architecture/` folder with several JSON configurations and a bootstrapping script (`script.sh`) to automate server setup.
 
-1. AWS CLI
-2. Install Apache Web Server
-3. Install Git
-4. Cloudwatch Agent
-5. Push custom memory metrics to Cloudwatch (using `memory_metrics.json`).
-6. AWS SSM Agent
+### 1. Understanding the Bootstrapping Script (`script.sh`)
+Instead of manually installing software on every server, we use a **User Data script** (`script.sh`). When an EC2 instance launches, this script automatically:
+- Detects the operating system (Amazon Linux 2 or Ubuntu).
+- Installs the Apache Web Server (`httpd` or `apache2`).
+- Installs the AWS CLI and the Amazon CloudWatch Agent.
+- Fetches the application web files directly from an Amazon S3 bucket (e.g., `s3://ed-web-config-project/index.html`) to the web root directory.
+- Configures the CloudWatch Agent to monitor system logs.
+
+### 2. IAM Policies & Roles
+For security, EC2 instances run with IAM Roles instead of hardcoded API keys.
+- **`s3-policy.json`**: An IAM policy that grants the EC2 instance permission to securely read configurations and web files from our specified S3 bucket.
+- **`flow-logs.json` & `flow-logs-trusted.json`**: IAM policies and trust relationships required to authorize VPC Flow Logs to write network traffic logs to Amazon CloudWatch.
+- **`memory_metrics.json`**: CloudWatch configuration file used to push custom memory metrics, enabling deeper insight into application performance.
+
+---
 
 ## VPC Deployment
 
-1. Build a primary VPC network (e.g., `172.32.0.0/16`) for deploying your Highly Available and Auto Scalable application servers.
-2. Build a secondary VPC network (e.g., `192.168.0.0/16`) dedicated to the Bastion Host deployment.
-3. Create an Internet Gateway (IGW) and attach it to both VPCs. Update the Public Subnet Route Tables to route default public traffic (`0.0.0.0/0`) to the IGW.
-4. Create a NAT Gateway in the Public Subnets and update the Private Subnet Route Tables to route default outbound internet traffic to the NAT Gateway.
-5. Create a Transit Gateway and attach both VPCs to it for private communication.
-6. Create an IAM role for VPC Flow Logs using the provided `flow-logs-trusted.json` and `flow-logs.json` policies. Create a Cloudwatch Log Group with two Log Streams to store the VPC Flow Logs of both VPCs.
-7. Enable Flow Logs for both VPCs and push the Flow Logs to Cloudwatch Log Groups.
-8. Create Security Group for bastion host allowing port 22 from your public IP.
-9. Deploy Bastion Host EC2 instance in the Public Subnet with EIP associated.
-10. Create S3 Bucket to store application specific configuration and upload the `html-web-app` source code.
-11. Create Launch Template with below configuration:
-    1. Golden AMI (or base AMI with Userdata)
-    2. Instance Type – t3.micro
-    3. Userdata (from `script.sh`) to pull the code from S3 bucket to document root folder of webserver and start the httpd service.
-    4. IAM Role granting access to Session Manager and to S3 bucket (`s3-policy.json`).
-    5. Security Group allowing port 22 from Bastion Host and Port 80 from Public.
-    6. Key Pair
-12. Create Auto Scaling Group with Min: 2 Max: 4 with two Private Subnets associated to multiple AZs for high availability.
-13. Create Target Group and associate it with ASG.
-14. Create Application Load Balancer (ALB) in Public Subnets for better layer 7 routing and add Target Group as target.
-15. Update route53 hosted zone with CNAME/Alias record routing the traffic to ALB.
+This phase involves creating the physical and logical networking boundaries. We separate the architecture into two distinct VPCs for enhanced security: one for the Bastion Host (jump box) and one for the Application servers.
+
+### Step 1: Base Network Setup
+1. **Bastion VPC**: Build a VPC network (e.g., `192.168.0.0/16`) for the Bastion Host deployment. This acts as an initial secure entry point.
+2. **Application VPC**: Build a VPC network (e.g., `172.32.0.0/16`) for deploying the Highly Available and Auto Scalable application servers.
+3. **Internet Gateways (IGW)**: Create an Internet Gateway for each VPC. Update the Route Tables associated with the Public Subnets to route default outward traffic (`0.0.0.0/0`) to the IGW, granting outbound/inbound internet connectivity for public resources.
+
+### Step 2: Private Network & Inter-VPC Routing
+4. **NAT Gateway**: Create a NAT Gateway in the Public Subnet of the Application VPC. Update the Private Subnet Route Table to route outgoing internet traffic to the NAT Gateway. This allows private backend servers to download software patches without being directly exposed to the internet.
+5. **Transit Gateway**: Create an AWS Transit Gateway and attach both VPCs to it. Update routing tables so that the Bastion VPC can communicate securely with the Application VPC using private IP addresses.
+
+### Step 3: Monitoring & Security
+6. **CloudWatch Log Groups**: Create a CloudWatch Log Group with two Log Streams to store the VPC Flow Logs of both VPCs.
+7. **Enable VPC Flow Logs**: Enable Flow Logs for both VPCs using the IAM roles configured in the pre-deployment phase. This will record all IP traffic going to and from network interfaces in your VPC, which is critical for security audits and troubleshooting.
+8. **Security Groups**: 
+   - Create a Bastion Host Security Group allowing inbound Port 22 (SSH) strictly from your trusted public IP address.
+   - Create an Application Security Group allowing inbound Port 80 (HTTP) from the Load Balancer, and Port 22 only from the Bastion Host Security Group.
+
+### Step 4: Compute & Scaling Infrastructure
+9. **Deploy Bastion Host**: Launch an EC2 instance in the Public Subnet of the Bastion VPC and associate an Elastic IP (EIP).
+10. **Application Storage**: Create an S3 Bucket and upload your `html-web-app` files. This is where `script.sh` will fetch the files.
+11. **Launch Template**: Create an EC2 Launch Template to standardize new instances.
+    - **AMI**: Use a base image like Amazon Linux 2.
+    - **Instance Type**: `t3.micro`.
+    - **User Data**: Paste the contents of `script.sh`.
+    - **IAM Profile**: Attach a role with AmazonSSMManagedInstanceCore and your S3 read policy.
+    - **Security Group**: Select the Application Security Group.
+12. **Auto Scaling Group (ASG)**: Create an ASG (Min: 2, Max: 4) deployed across two Private Subnets in different Availability Zones to guarantee High Availability. 
+13. **Target Group & ALB**: 
+    - Create a Target Group that groups instances on Port 80.
+    - Create an Application Load Balancer (ALB) across the Public Subnets. The ALB receives public traffic and securely distributes it down into your private Application Subnets via the Target Group.
+    - Associate the Target Group with the ASG so new instances are automatically registered.
+14. **DNS Routing**: Update your Route 53 hosted zone to create a CNAME or Alias record pointing your custom domain name to the ALB’s DNS name.
+
+---
 
 ## Validation
 
-1. As DevOps Engineer login to Private Instances via Bastion Host using ssh agent forwarding.
-2. Login to AWS Session Manager and access the EC2 shell from console.
-3. Browse web application from public internet browser using domain name and verify that page loaded.
-4. Access Amazon CloudWatch Logs to confirm that system logs, custom memory metrics, and VPC Flow Logs are being successfully recorded and monitored properly.
+After the deployment stabilizes, you need to verify that the networking rules, routing, and applications are functioning successfully:
+
+1. **Test Bastion Host SSH**: As a DevOps Engineer, use SSH agent forwarding to log into the Bastion Host, and from there, attempt an SSH connection into your Private Application Instances.
+2. **AWS Systems Manager**: Validate that you can use AWS Session Manager from the AWS Console to open a secure shell to your private EC2 instances without needing SSH keys.
+3. **Web Application Reachability**: Open a web browser (preferably Incognito) and navigate to your ALB domain name. Verify that your HTML web application loads successfully and serves the CSS/JS appropriately.
+4. **Log Verification**: Visit Amazon CloudWatch in the AWS Console. Ensure that the VPC Flow logs are populated and that your `script.sh` deployment logs exist in the system logs stream.
