@@ -1,6 +1,14 @@
 # AWS VPC Architecture - Scalable Cloud Infrastructure
 
+![AWS](https://img.shields.io/badge/AWS-Cloud-orange)
+![VPC](https://img.shields.io/badge/Service-VPC-blue)
+![EC2](https://img.shields.io/badge/Service-EC2-lightgrey)
+![CloudWatch](https://img.shields.io/badge/Monitoring-CloudWatch-orange)
+![Auto Scaling](https://img.shields.io/badge/Feature-Auto%20Scaling-green)
+
 Deploy a **modular, highly available, and auto-scalable VPC architecture** on AWS with security best practices and monitoring integration.
+
+![Architecture](images/architecture-diagram.png)
 
 ---
 
@@ -10,6 +18,63 @@ Deploy a **modular, highly available, and auto-scalable VPC architecture** on AW
 |-----|------------|---------|
 | **Bastion VPC** | `192.168.0.0/16` | Secure administrative access |
 | **Application VPC** | `172.32.0.0/16` | Hosts auto-scalable web servers |
+
+### High-Level Architecture Diagram
+
+![Network Flow](images/network-flow.png)
+
+```
+                              ┌─────────────────────────────────────────────────────────┐
+                              │                      AWS Cloud                          │
+                              │                                                         │
+    ┌─────────────────────┐   │   ┌──────────────────┐      ┌────────────────────────┐  │
+    │   Public Internet   │───┼───►  Internet Gateway │      │   Bastion VPC          │  │
+    │                     │   │   │   (IGW)          │      │   192.168.0.0/16       │  │
+    └─────────────────────┘   │   └──────────────────┘      │                        │  │
+                              │                              │  ┌──────────────────┐  │  │
+                              │                              │  │ Public Subnet    │  │  │
+                              │                              │  │                  │  │  │
+    ┌─────────────────────┐   │                              │  │  ┌────────────┐  │  │  │
+    │   Route53 DNS       │───┼──────────────────────────────┼──┼──│  Bastion   │  │  │  │
+    │ app.yourdomain.com  │   │                              │  │  │   Host     │  │  │  │
+    └─────────────────────┘   │                              │  │  └────────────┘  │  │  │
+                              │                              │  │                  │  │  │
+                              │                              │  └──────────────────┘  │  │
+                              │                              │                        │  │
+                              │   ┌──────────────────────────┴────────────────────────┘  │
+                              │   │ Transit Gateway (TGW)                                │
+                              │   └──────────────────────────┬───────────────────────────┘
+                              │                              │
+                              │   ┌──────────────────────────▼───────────────────────────┐
+                              │   │         Application VPC                              │
+                              │   │         172.32.0.0/16                                │
+                              │   │                                                      │
+                              │   │  ┌────────────────────┐    ┌──────────────────────┐  │
+                              │   │  │  Public Subnet     │    │   Private Subnets    │  │
+                              │   │  │                    │    │   (Multi-AZ)         │  │
+                              │   │  │ ┌────────────────┐ │    │                      │  │
+                              │   │  │ │ Network Load   │ │    │  ┌────────────────┐  │  │
+                              │   │  │ │   Balancer     │─┼────┼──│ Auto Scaling   │  │  │
+                              │   │  │ │     (NLB)      │ │    │  │    Group       │  │  │
+                              │   │  │ └────────────────┘ │    │  │  (EC2 x 2-4)   │  │  │
+                              │   │  │ ┌────────────────┐ │    │  └────────────────┘  │  │
+                              │   │  │ │   NAT Gateway  │ │    │                      │  │
+                              │   │  │ └────────────────┘ │    │  ┌────────────────┐  │  │
+                              │   │  │ ┌────────────────┐ │    │  │  Target Group  │  │  │
+                              │   │  │ │ Internet GW    │ │    │  │   (Port 80)    │  │  │
+                              │   │  │ └────────────────┘ │    │  └────────────────┘  │  │
+                              │   │  └────────────────────┘    └──────────────────────┘  │
+                              │   │                                                      │
+                              │   └──────────────────────────────────────────────────────┘
+                              │
+                              │   ┌──────────────────────────────────────────────────────┐
+                              │   │              CloudWatch                              │
+                              │   │  • VPC Flow Logs                                     │
+                              │   │  • Custom Memory Metrics                             │
+                              │   │  • System Logs                                       │
+                              │   └──────────────────────────────────────────────────────┘
+                              └─────────────────────────────────────────────────────────┘
+```
 
 ### Key Components
 
@@ -65,6 +130,51 @@ aws ec2 create-vpc --cidr-block 172.32.0.0/16
 - Public subnets (for Bastion, NLB, NAT Gateway)
 - Private subnets (for EC2 instances in Multi-AZ)
 
+### Network Flow Diagram
+
+```
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│   Internet   │ ───► │ Internet GW  │ ───► │  Public      │
+│  (Users)     │      │   (IGW)      │      │  Subnet      │
+└──────────────┘      └──────────────┘      └──────┬───────┘
+                                                   │
+                    ┌──────────────────────────────┼──────────────────────────────┐
+                    │                              ▼                              │
+                    │                    ┌──────────────────┐                     │
+                    │                    │  Network Load    │                     │
+                    │                    │   Balancer       │                     │
+                    │                    │    (NLB)         │                     │
+                    │                    └────────┬─────────┘                     │
+                    │                             │                               │
+                    │                             ▼                               │
+                    │                    ┌──────────────────┐                     │
+                    │                    │  Target Group    │                     │
+                    │                    │   (Port 80)      │                     │
+                    │                    └────────┬─────────┘                     │
+                    │                             │                               │
+                    │              ┌──────────────┴──────────────┐                │
+                    │              ▼                             ▼                │
+                    │    ┌──────────────────┐        ┌──────────────────┐         │
+                    │    │ Private Subnet   │        │ Private Subnet   │         │
+                    │    │ AZ-1a            │        │ AZ-1b            │         │
+                    │    │ ┌──────────────┐ │        │ ┌──────────────┐ │         │
+                    │    │ │  EC2 Instance│ │        │ │  EC2 Instance│ │         │
+                    │    │ │  (Apache)    │ │        │ │  (Apache)    │ │         │
+                    │    │ └──────────────┘ │        │ └──────────────┘ │         │
+                    │    └────────┬─────────┘        └──────────────────┘         │
+                    │             │                                               │
+                    │             ▼                                               │
+                    │    ┌──────────────────┐                                     │
+                    │    │   NAT Gateway    │ ◄─── Outbound Internet Access       │
+                    │    └──────────────────┘                                     │
+                    └─────────────────────────────────────────────────────────────┘
+
+                    ┌─────────────────────────────────────────────────────────────┐
+                    │                    Transit Gateway                          │
+                    │         (Connects Bastion VPC ↔ Application VPC)            │
+                    └─────────────────────────────────────────────────────────────┘
+```
+
 ### 2. Routing & Connectivity
 
 - **Internet Gateway** – Attach to each VPC for public access
@@ -84,6 +194,36 @@ aws ec2 create-flow-logs --resource-type VPC --resource-ids vpc-xxx
 Use provided IAM policies:
 - `flow-logs.json` – Permissions for CloudWatch Logs
 - `memory_metrics.json` – Custom memory metrics
+
+### Monitoring Architecture
+
+![Monitoring](images/cloudwatch-dashboard.png)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        CloudWatch Monitoring                        │
+│                                                                     │
+│   ┌──────────────────┐    ┌──────────────────┐    ┌──────────────┐ │
+│   │   VPC Flow Logs  │    │  Memory Metrics  │    │ System Logs  │ │
+│   │                  │    │                  │    │              │ │
+│   │ /aws/vpc/        │    │ /aws/memory/     │    │ /var/log/    │ │
+│   │ flowlogs         │    │ metrics          │    │ messages     │ │
+│   │                  │    │                  │    │              │ │
+│   │ • Network traffic│    │ • RAM usage      │    │ • OS events  │ │
+│   │ • Security audit │    │ • Performance    │    │ • Debugging  │ │
+│   │ • Troubleshooting│    │ • Alerting       │    │ • Compliance │ │
+│   └────────┬─────────┘    └────────┬─────────┘    └──────┬───────┘ │
+│            │                       │                      │        │
+│            └───────────────────────┼──────────────────────┘        │
+│                                    ▼                                │
+│                        ┌──────────────────────┐                     │
+│                        │   CloudWatch Dashboard │                   │
+│                        │   • Metrics & Graphs   │                   │
+│                        │   • Alarms & Alerts    │                   │
+│                        │   • Log Insights       │                   │
+│                        └──────────────────────┘                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ### 4. Bastion Host
 
@@ -161,25 +301,161 @@ aws s3 ls s3://ed-web-config-project/
 
 ## 🔒 Security Best Practices
 
-- **Bastion Host**: Only SSH from trusted IPs
-- **Private Instances**: No direct public access (only via NLB)
-- **IAM Roles**: Least privilege (no S3 full access)
-- **VPC Flow Logs**: All traffic logged to CloudWatch
-- **Session Manager**: Passwordless, auditable EC2 access
+### Security Architecture
+
+![Security](images/security-groups.png)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      Security Layers                                │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Layer 1: Network Security                                   │   │
+│  │  • VPC isolation (separate CIDR blocks)                      │   │
+│  │  • Public/Private subnet segmentation                        │   │
+│  │  • Security Groups (stateful firewalls)                      │   │
+│  │  • NACLs (stateless network ACLs)                            │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Layer 2: Access Control                                     │   │
+│  │  • Bastion Host (single SSH entry point)                     │   │
+│  │  • IAM Roles (no hardcoded credentials)                      │   │
+│  │  • Session Manager (passwordless access)                     │   │
+│  │  • MFA for privileged users                                  │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │  Layer 3: Monitoring & Audit                                 │   │
+│  │  • VPC Flow Logs (all network traffic)                       │   │
+│  │  • CloudTrail (API activity logging)                         │   │
+│  │  • CloudWatch Alarms (anomaly detection)                     │   │
+│  │  • Config Rules (compliance checking)                        │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
+
+Access Flow:
+────────────
+Internet ──► NLB (Port 80) ──► EC2 (Private)
+                │
+                └──► Health Checks ──► Target Group
+
+Admin ──► Bastion Host (SSH Port 22) ──► Private EC2
+          (Public IP, restricted SG)
+```
+
+### Security Group Rules
+
+| Component | Inbound Rules | Outbound Rules |
+|-----------|--------------|----------------|
+| **Bastion SG** | SSH (22) from trusted IPs | All traffic |
+| **App SG** | HTTP (80) from NLB, SSH (22) from Bastion | All traffic |
+| **NLB SG** | HTTP (80) from Internet | All traffic |
 
 ---
 
 ## 💰 Cost Tips
 
-| Component | Tip |
-|-----------|-----|
-| EC2 | Use t2.micro for dev; Reserved Instances for production |
-| NAT Gateway | Use NAT Instance for low-traffic workloads |
-| Auto Scaling | Right-size min/max based on demand |
+### Cost Optimization Architecture
+
+![Cost](images/cost-optimization.png)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Cost Optimization Strategies                     │
+│                                                                     │
+│  ┌─────────────────────┐  ┌─────────────────────┐                  │
+│  │   Compute (EC2)     │  │   Network           │                  │
+│  │                     │  │                     │                  │
+│  │  ✓ t2.micro for dev │  │  ✓ NAT Instance     │                  │
+│  │  ✓ Reserved Instances│  │    (low traffic)    │                  │
+│  │  ✓ Spot Instances   │  │  ✓ Same region      │                  │
+│  │    (fault-tolerant) │  │    (no x-region     │                  │
+│  │  ✓ Auto Scaling     │  │     data transfer)  │                  │
+│  │    (right-size)     │  │                     │                  │
+│  └─────────────────────┘  └─────────────────────┘                  │
+│                                                                     │
+│  ┌─────────────────────┐  ┌─────────────────────┐                  │
+│  │   Storage (S3/EBS)  │  │   Monitoring        │                  │
+│  │                     │  │                     │                  │
+│  │  ✓ S3 Lifecycle     │  │  ✓ Log retention    │                  │
+│  │    policies         │  │    policies         │                  │
+│  │  ✓ EBS gp2 vs gp3   │  │  ✓ Metric filtering │                  │
+│  │  ✓ Delete unused    │  │  ✓ Alarm thresholds │                  │
+│  │    snapshots        │  │    (reduce noise)   │                  │
+│  └─────────────────────┘  └─────────────────────┘                  │
+└─────────────────────────────────────────────────────────────────────┘
+
+Estimated Monthly Cost (us-west-2):
+───────────────────────────────────
+Bastion (t2.micro)        : ~$7.50
+App EC2 x2 (t2.micro)     : ~$15.00
+NAT Gateway               : ~$32.40 + data processing
+NLB                       : ~$16.20 + LCU charges
+Transit Gateway           : ~$36.00 + data processing
+CloudWatch Logs           : ~$5.00 (varies by volume)
+───────────────────────────────────
+Total (approx.)           : ~$112+/month
+```
 
 ---
 
 ## 🐛 Troubleshooting
+
+### Troubleshooting Flowchart
+
+![Troubleshooting](images/troubleshooting.png)
+
+```
+                        ┌─────────────────┐
+                        │  Issue Reported │
+                        └────────┬────────┘
+                                 │
+              ┌──────────────────┼──────────────────┐
+              │                  │                  │
+              ▼                  ▼                  ▼
+    ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+    │ Website Down    │ │ Can't SSH       │ │ High Latency    │
+    └────────┬────────┘ └────────┬────────┘ └────────┬────────┘
+             │                   │                   │
+             ▼                   ▼                   ▼
+    ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+    │ Check NLB       │ │ Check Bastion   │ │ Check CPU/Mem   │
+    │ Target Health   │ │ SG & EIP        │ │ CloudWatch      │
+    └────────┬────────┘ └────────┬────────┘ └────────┬────────┘
+             │                   │                   │
+             ▼                   ▼                   ▼
+    ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+    │ Verify Apache   │ │ Check IAM       │ │ Check ASG       │
+    │ Service on EC2  │ │ Permissions     │ │ Scale Out       │
+    └─────────────────┘ └─────────────────┘ └─────────────────┘
+```
+
+### Common Issues & Solutions
+
+| Issue | Possible Cause | Solution |
+|-------|---------------|----------|
+| **503 Service Unavailable** | Target Group unhealthy | Check security groups, verify Apache running |
+| **Connection Timeout** | Route table misconfigured | Verify IGW/NAT Gateway routes |
+| **SSH Access Denied** | Wrong SG or key | Check Bastion SG allows your IP |
+| **S3 Access Denied** | IAM policy missing | Attach S3 read policy to EC2 role |
+| **No CloudWatch Logs** | Agent not running | `sudo systemctl status amazon-cloudwatch-agent` |
+
+---
+
+## 📸 Screenshots & Visuals
+
+### Architecture Deployment
+
+![VPC Dashboard](images/vpc-dashboard.png)
+![Transit Gateway](images/transit-gateway.png)
+![Auto Scaling](images/auto-scaling.png)
+![Load Balancer](images/nlb-targets.png)
+![CloudWatch Metrics](images/cloudwatch-metrics.png)
+
+---
+
+## 🐛 Quick Troubleshooting Commands
 
 **Instances not launching?**
 ```bash
