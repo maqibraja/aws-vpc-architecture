@@ -1,52 +1,214 @@
-# Deploy Scalable VPC Architecture on AWS Cloud
+# AWS VPC Architecture - Scalable Cloud Infrastructure
 
-## Goal
+Deploy a **modular, highly available, and auto-scalable VPC architecture** on AWS with security best practices and monitoring integration.
 
-Deploy a Modular and Scalable Virtual Network Architecture with Amazon VPC.
+---
 
-## Pre-Requisites
+## 🏗️ Architecture Overview
 
-1. You must be having an [AWS account](https://aws.amazon.com/) to create infrastructure resources on AWS cloud.
-2. [Source Code](https://github.com/maqibraja/aws-vpc-architecture/tree/main/html-web-app)
+| VPC | CIDR Block | Purpose |
+|-----|------------|---------|
+| **Bastion VPC** | `192.168.0.0/16` | Secure administrative access |
+| **Application VPC** | `172.32.0.0/16` | Hosts auto-scalable web servers |
 
-## Pre-Deployment
+### Key Components
 
-Customize the application dependencies mentioned below on AWS EC2 instance and create the Golden AMI.
+- ✅ **Multi-AZ Deployment** – High availability across availability zones
+- ✅ **Auto Scaling** – Min: 2, Max: 4 EC2 instances
+- ✅ **Load Balancing** – Network Load Balancer (NLB)
+- ✅ **Bastion Host** – Secure SSH access point
+- ✅ **Monitoring** – CloudWatch Logs & Custom Metrics
+- ✅ **VPC Peering** – Transit Gateway for private VPC communication
 
-1. AWS CLI
-2. Install Apache Web Server
-3. Install Git
-4. Cloudwatch Agent
-5. Push custom memory metrics to Cloudwatch.
-6. AWS SSM Agent
+---
 
-## VPC Deployment
+## 📁 Project Structure
 
-1. Build VPC network ( 192.168.0.0/16 ) for Bastion Host deployment as per the architecture shown above.
-2. Build VPC network ( 172.32.0.0/16 ) for deploying Highly Available and Auto Scalable application servers as per the architecture shown above.
-3. Create NAT Gateway in Public Subnet and update Private Subnet associated Route Table accordingly to route the default traffic to NAT for outbound internet connection.
-4. Create Transit Gateway and associate both VPCs to the Transit Gateway  for private communication.
-5. Create Internet Gateway for each VPC and Public Subnet associated Route Table accordingly to route the default traffic to IGW for inbound/outbound internet connection.
-6. Create Cloudwatch Log Group with two Log Streams to store the VPC Flow Logs of both VPCs.
-7. Enable Flow Logs for both VPCs and push the Flow Logs to Cloudwatch Log Groups and store the logs in the respective Log Stream for each VPC.
-8. Create Security Group for bastion host allowing port 22 from public.
-9. Deploy Bastion Host EC2 instance in the Public Subnet with EIP associated.
-10. Create S3 Bucket to store application specific configuration.
-11. Create Launch Configuration with below configuration.
-    1. Golden AMI
-    2. Instance Type – t2.micro
-    3. Userdata to pull the code from Bitbucket Repository  to document root folder of webserver and start the httpd service.
-    4. IAM Role granting access to Session Manager and to S3 bucket created in the previous step to pull the configuration. (Do  not grant S3 Full Access)
-    5. Security Group allowing port 22 from Bastion Host and Port 80 from Public.
-    6. Key Pair
-12. Create Auto Scaling Group with Min: 2 Max: 4 with two Private Subnets associated to 1a and 1b zones.
-13. Create Target Group and associate it with ASG.
-14. Create Network Load balancer in Public Subnet and add Target Group as target.
-15. Update route53 hosted zone with CNAME record routing the traffic to NLB.
+```
+aws-vpc-architecture/
+├── README.md
+├── html-web-app/              # Sample web application
+│   ├── index.html
+│   ├── css/, js/, images/
+│   └── WEB-INF/
+└── VPC Architecture/
+    ├── script.sh              # EC2 bootstrap/userdata script
+    ├── s3-policy.json         # S3 access IAM policy
+    ├── flow-logs.json         # VPC Flow Logs IAM policy
+    ├── flow-logs-trusted.json # VPC Flow Logs trust policy
+    └── memory_metrics.json    # CloudWatch metrics policy
+```
 
-## Validation
+---
 
-1. As DevOps Engineer login to Private Instances via Bastion Host.
-2. Login to AWS Session Manager and access the EC2 shell from console.
-3. Browse web application from public internet browser using domain name and verify that page loaded.
+## 📋 Prerequisites
 
+- AWS Account with appropriate IAM permissions
+- AWS CLI v2 installed and configured
+- SSH key pair for EC2 access
+
+---
+
+## 🚀 Deployment Steps
+
+### 1. VPC Network Setup
+
+```bash
+# Create Bastion VPC
+aws ec2 create-vpc --cidr-block 192.168.0.0/16
+
+# Create Application VPC
+aws ec2 create-vpc --cidr-block 172.32.0.0/16
+```
+
+**Subnets to create:**
+- Public subnets (for Bastion, NLB, NAT Gateway)
+- Private subnets (for EC2 instances in Multi-AZ)
+
+### 2. Routing & Connectivity
+
+- **Internet Gateway** – Attach to each VPC for public access
+- **NAT Gateway** – Deploy in public subnet for private subnet outbound traffic
+- **Transit Gateway** – Connect both VPCs for private communication
+
+### 3. Monitoring Setup
+
+```bash
+# Create CloudWatch Log Group
+aws logs create-log-group --log-group-name /aws/vpc/flowlogs
+
+# Enable VPC Flow Logs
+aws ec2 create-flow-logs --resource-type VPC --resource-ids vpc-xxx
+```
+
+Use provided IAM policies:
+- `flow-logs.json` – Permissions for CloudWatch Logs
+- `memory_metrics.json` – Custom memory metrics
+
+### 4. Bastion Host
+
+```bash
+# Launch EC2 in Public Subnet
+aws ec2 run-instances --image-id ami-xxx --instance-type t2.micro
+
+# Associate Elastic IP
+aws ec2 associate-address --instance-id i-xxx
+```
+
+**Security Group:** Allow SSH (port 22) from trusted IPs only.
+
+### 5. Application Infrastructure
+
+**Golden AMI should include:**
+- Apache Web Server
+- AWS CLI v2
+- CloudWatch Agent
+- AWS SSM Agent
+
+**Create:**
+1. **S3 Bucket** – Store application config (`ed-web-config-project`)
+2. **IAM Role** – S3 read access + CloudWatch + Session Manager
+3. **Launch Configuration** – Golden AMI, t2.micro, userdata script
+4. **Auto Scaling Group** – Min: 2, Max: 4, Multi-AZ
+5. **Target Group** – Health checks on port 80
+6. **Network Load Balancer** – Public subnet, forwards to Target Group
+
+### 6. DNS Configuration
+
+```bash
+# Route53 CNAME record pointing to NLB
+app.yourdomain.com → App-NLB-xxx.elb.amazonaws.com
+```
+
+---
+
+## ✅ Validation
+
+### Access Private Instances via Bastion
+
+```bash
+ssh -i key.pem ec2-user@<bastion-ip>
+ssh -i key.pem ec2-user@<private-instance-ip>
+```
+
+### Session Manager Access
+
+```bash
+aws ssm start-session --target i-xxx
+```
+
+### Test Web Application
+
+```bash
+curl http://app.yourdomain.com
+# Should load DevOpsRealtime homepage
+```
+
+### Verify Components
+
+```bash
+# Check ASG status
+aws autoscaling describe-auto-scaling-groups
+
+# Check target health
+aws elbv2 describe-target-health
+
+# Verify S3 access from EC2
+aws s3 ls s3://ed-web-config-project/
+```
+
+---
+
+## 🔒 Security Best Practices
+
+- **Bastion Host**: Only SSH from trusted IPs
+- **Private Instances**: No direct public access (only via NLB)
+- **IAM Roles**: Least privilege (no S3 full access)
+- **VPC Flow Logs**: All traffic logged to CloudWatch
+- **Session Manager**: Passwordless, auditable EC2 access
+
+---
+
+## 💰 Cost Tips
+
+| Component | Tip |
+|-----------|-----|
+| EC2 | Use t2.micro for dev; Reserved Instances for production |
+| NAT Gateway | Use NAT Instance for low-traffic workloads |
+| Auto Scaling | Right-size min/max based on demand |
+
+---
+
+## 🐛 Troubleshooting
+
+**Instances not launching?**
+```bash
+aws autoscaling describe-launch-configurations
+# Check /var/log/cloud-init-output.log on EC2
+```
+
+**Website not accessible?**
+```bash
+# Check Security Groups
+aws ec2 describe-security-groups
+
+# Verify Apache
+sudo systemctl status httpd
+```
+
+**S3 access denied?**
+```bash
+# Verify IAM policy
+aws iam list-attached-role-policies --role-name EC2-App-Role
+```
+
+---
+
+## 📞 Support
+
+- **Issues**: Open on GitHub
+- **Contact**: support@DevOpsRealtime.com
+
+---
+
+**Happy Deploying! 🚀**
